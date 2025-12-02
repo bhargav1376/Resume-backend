@@ -1,7 +1,12 @@
 const express = require("express");
 const axios = require("axios");
-const { v4: uuidv4 } = require("uuid");
 const router = express.Router();
+
+// FIX: dynamic uuid import for ESM-only versions
+const uuidv4 = async () => {
+  const { v4 } = await import("uuid");
+  return v4();
+};
 
 router.post("/compile-latex", async (req, res) => {
   console.log("\n========== NEW LATEX REQUEST ==========");
@@ -16,7 +21,8 @@ router.post("/compile-latex", async (req, res) => {
       return res.status(400).json({ error: "LaTeX code required" });
     }
 
-    const uid = uuidv4();
+    // call dynamic uuid
+    const uid = await uuidv4();
     console.log("Generated UID:", uid);
 
     const uploadUrl = `https://texviewer.herokuapp.com/upload.php?uid=${uid}`;
@@ -48,7 +54,6 @@ router.post("/compile-latex", async (req, res) => {
       return res.status(500).json({ error: "Upload to compiler failed" });
     }
 
-    // STEP 2 — Polling
     console.log("STEP 2 — Polling for PDF…");
 
     const checkUrl = "https://texviewer.herokuapp.com/upload.php?action=checkcomplete";
@@ -85,7 +90,6 @@ router.post("/compile-latex", async (req, res) => {
       return res.status(500).json({ error: "PDF generation timeout" });
     }
 
-    // STEP 3 — Download PDF
     console.log("STEP 3 — Downloading PDF:", pdfUrl);
 
     let pdfRes;
@@ -97,9 +101,6 @@ router.post("/compile-latex", async (req, res) => {
     }
 
     console.log("✔ PDF downloaded successfully. Size:", pdfRes.data.length);
-
-    // STEP 4 — Return PDF
-    console.log("STEP 4 — Sending PDF to frontend.");
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", "inline; filename=resume.pdf");
