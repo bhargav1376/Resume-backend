@@ -1,0 +1,37 @@
+{
+  "name": "backend-auth",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "axios": "^1.13.2",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "fs-extra": "^11.3.2",
+    "jsonwebtoken": "^9.0.2",
+    "katex": "^0.16.25",
+    "latex.js": "^0.12.6",
+    "mammoth": "^1.11.0",
+    "mongoose": "^9.0.0",
+    "multer": "^2.0.2",
+    "node-latex": "^3.1.0",
+    "pdf-parse": "^2.4.5",
+    "puppeteer": "^24.31.0",
+    "tmp": "^0.2.5",
+    "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.11"
+  }
+}
