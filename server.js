@@ -5,10 +5,18 @@ const dotenv = require("dotenv");
 
 dotenv.config();
 
+const { getCookie } = require("./utils/cloudflareCookie");
+
+// Force puppeteer path for Render
+process.env.PUPPETEER_EXECUTABLE_PATH = "/usr/bin/chromium";
+
 const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+// Warm-up CF cookie
+getCookie().catch(err => console.log("⚠ Cookie warmup failed:", err.message));
 
 // Routes
 app.use("/api/auth", require("./routes/authRoutes"));

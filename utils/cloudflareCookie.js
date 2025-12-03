@@ -1,40 +1,59 @@
-// utils/cloudflareCookie.js
-// Generic Puppeteer helper – NOT for bypassing Cloudflare or any other protection.
+const puppeteer = require("puppeteer-extra");
+const StealthPlugin = require("puppeteer-extra-plugin-stealth");
 
-const puppeteer = require("puppeteer-core");
+puppeteer.use(StealthPlugin());
 
-// Launch a browser instance using the Chromium we installed in Docker.
-async function launchBrowser() {
+// Cache cookie
+let cachedCookie = null;
+let lastFetched = 0;
+
+async function fetchCookie() {
+  console.log("🔄 Fetching Perplexity Cloudflare cookie...");
+
   const browser = await puppeteer.launch({
-    headless: true,
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium",
-    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    headless: true,               // FIX for Render
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--disable-features=IsolateOrigins",
+      "--disable-site-isolation-trials",
+    ],
   });
 
-  return browser;
+  const page = await browser.newPage();
+  await page.setUserAgent(
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:144.0) Gecko/20100101 Firefox/144.0"
+  );
+
+  await page.goto("https://www.perplexity.ai", {
+    waitUntil: "networkidle2",
+    timeout: 60000,
+  });
+
+  const cookies = await page.cookies();
+  await browser.close();
+
+  const cookieString = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
+
+  cachedCookie = cookieString;
+  lastFetched = Date.now();
+
+  console.log("✅ Cookie Updated");
+  return cookieString;
 }
 
-/**
- * Example helper: open a page and return its title.
- * Use this pattern for allowed automation tasks (your own app, testing, etc.).
- */
-async function getPageTitle(url) {
-  const browser = await launchBrowser();
-  try {
-    const page = await browser.newPage();
-    await page.goto(url, { waitUntil: "networkidle2" });
-    const title = await page.title();
-    return title;
-  } finally {
-    await browser.close();
+async function getCookie() {
+  if (!cachedCookie) return await fetchCookie();
+
+  // refresh every 20 minutes
+  if (Date.now() - lastFetched > 20 * 60 * 1000) {
+    return await fetchCookie();
   }
+
+  return cachedCookie;
 }
 
-// For Perplexity / Cloudflare-protected services, rely on official APIs
-// and use process.env.PERPLEXITY_COOKIE directly instead of trying to
-// scrape or bypass their protection here.
-
-module.exports = {
-  launchBrowser,
-  getPageTitle,
-};
+module.exports = { getCookie };
