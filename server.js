@@ -5,18 +5,22 @@ const dotenv = require("dotenv");
 
 dotenv.config();
 
-const { getCookie } = require("./utils/cloudflareCookie");
+const { getCookie } = require("./utils/cloudflareCookie"); // ⬅ added
 
-// Force puppeteer path for Render
-process.env.PUPPETEER_EXECUTABLE_PATH = "/usr/bin/chromium";
-
+// warmup check
+try {
+  getCookie();
+  console.log("Perplexity cookie loaded ✔");
+} catch (e) {
+  console.log("❌ Missing PERPLEXITY_COOKIE:", e.message);
+}
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
-// Warm-up CF cookie
-getCookie().catch(err => console.log("⚠ Cookie warmup failed:", err.message));
+// 🔥 Warm-up: fetch Cloudflare cookie on startup
+getCookie();
 
 // Routes
 app.use("/api/auth", require("./routes/authRoutes"));
