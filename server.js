@@ -5,21 +5,21 @@ const dotenv = require("dotenv");
 
 dotenv.config();
 
+const { getCookie } = require("./utils/cloudflareCookie"); // ⬅ added
+
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
+// 🔥 Warm-up: fetch Cloudflare cookie on startup
+getCookie();
+
 // Routes
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/latex", require("./routes/latexRoutes"));
 app.use("/api/history", require("./routes/historyRoutes"));
-
 app.use("/api", require("./routes/latexCompile"));
-
-
-
-// ✅ FIX: Correct optimize route
 app.use("/api/optimize", require("./routes/optimizeRoutes"));
 
 app.get("/", (req, res) => {

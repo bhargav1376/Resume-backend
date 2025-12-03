@@ -5,14 +5,9 @@ const { protect } = require("../middleware/authMiddleware");
 const History = require("../models/History");
 const router = express.Router();
 
-const PERPLEXITY_COOKIE = process.env.PERPLEXITY_COOKIE;
-const PERPLEXITY_TIMEZONE = process.env.PERPLEXITY_TIMEZONE || "Asia/Kolkata";
+const { getCookie } = require("../utils/cloudflareCookie");
 
-if (!PERPLEXITY_COOKIE) {
-  console.warn(
-    "[optimizeRoutes] ⚠ PERPLEXITY_COOKIE is not set in .env – /api/optimize will fail."
-  );
-}
+const PERPLEXITY_TIMEZONE = process.env.PERPLEXITY_TIMEZONE || "Asia/Kolkata";
 
 /* ---------------- Helpers ---------------- */
 
@@ -54,8 +49,10 @@ function extractLatexCode(text) {
   return null;
 }
 
+/* ---------------- Perplexity Call ---------------- */
+
 async function askPerplexity(query) {
-  if (!PERPLEXITY_COOKIE) throw new Error("PERPLEXITY_COOKIE is not set");
+  const cookie = await getCookie();
 
   const url = "https://www.perplexity.ai/rest/sse/perplexity_ask";
 
@@ -82,47 +79,59 @@ async function askPerplexity(query) {
     "Content-Type": "application/json",
     Referer: "https://www.perplexity.ai/",
     Origin: "https://www.perplexity.ai",
-    Cookie: PERPLEXITY_COOKIE,
+    Cookie: cookie,
   };
 
-  const res = await axios.post(url, payload, {
-    headers,
-    responseType: "text",
-    timeout: 120000,
-  });
+  try {
+    const res = await axios.post(url, payload, {
+      headers,
+      responseType: "text",
+      timeout: 120000,
+    });
 
-  let finalAnswer = null;
+    let finalAnswer = null;
 
-  for (const rawLine of res.data.split("\n")) {
-    const line = rawLine.trim();
-    if (!line.startsWith("data:")) continue;
-    const jsonStr = line.slice(5).trim();
-    if (!jsonStr) continue;
+    for (const rawLine of res.data.split("\n")) {
+      const line = rawLine.trim();
+      if (!line.startsWith("data:")) continue;
 
-    let obj;
-    try {
-      obj = JSON.parse(jsonStr);
-    } catch {
-      continue;
-    }
+      const jsonString = line.slice(5).trim();
+      if (!jsonString) continue;
 
-    if (obj.final || obj.status === "COMPLETED") {
-      const blocks = obj.blocks || [];
-      for (const block of blocks) {
-        const markdown = block.markdown_block;
-        if (markdown && markdown.answer) {
-          finalAnswer = markdown.answer;
-          break;
+      let obj;
+      try {
+        obj = JSON.parse(jsonString);
+      } catch {
+        continue;
+      }
+
+      if (obj.final || obj.status === "COMPLETED") {
+        const blocks = obj.blocks || [];
+        for (const block of blocks) {
+          if (block.markdown_block?.answer) {
+            finalAnswer = block.markdown_block.answer;
+            break;
+          }
         }
       }
     }
-  }
 
-  if (!finalAnswer) throw new Error("No final answer received from Perplexity");
-  return finalAnswer;
+    if (!finalAnswer) throw new Error("No final answer received from Perplexity");
+    return finalAnswer;
+  } catch (err) {
+    console.error("❌ Perplexity API Error:", err.response?.status);
+
+    if (err.response?.status === 403) {
+      console.log("⚠ Cookie expired — fetching new one...");
+      await getCookie();
+      return askPerplexity(query);
+    }
+
+    throw err;
+  }
 }
 
-/* ---------------- Default LaTeX template ---------------- */
+/* ---------------- Default Template ---------------- */
 
 const DEFAULT_LATEX_TEMPLATE = `
 \\documentclass[10pt,a4paper]{article}
@@ -193,7 +202,6 @@ CGPA: X.XX/10
 
 /* ----------------------------------------------------------
     POST /api/optimize
-    Generate LaTeX, update latest History (no duplicate)
 ---------------------------------------------------------- */
 router.post("/", protect, async (req, res) => {
   try {
@@ -204,12 +212,8 @@ router.post("/", protect, async (req, res) => {
       return res.status(400).json({ error: "jobDescription cannot be empty" });
     }
 
-    // ⭐ Handle both req.user._id and req.user.id
     const userId = req.user?._id || req.user?.id;
-    if (!userId) {
-      console.error("[optimize] No user id in req.user");
-      return res.status(401).json({ error: "User not authenticated" });
-    }
+    if (!userId) return res.status(401).json({ error: "Not authenticated" });
 
     const isFresher = /fresher|entry level|no experience|testing fresher/.test(
       jobDescription.toLowerCase()
@@ -250,9 +254,8 @@ TASK:
 - Update ONLY the professional summary, experience bullets, projects, and technologies
 - Inject relevant ATS keywords from the job description
 - Keep it one page (no overflow)
-- Keep the LaTeX structure valid
-- Do NOT remove required packages
-- Return ONLY the FULL LaTeX document (starting with \\documentclass and ending with \\end{document}), no extra commentary.
+- Maintain valid LaTeX
+- Return ONLY full LaTeX (start with \\documentclass, end with \\end{document})
 `;
 
     const perplexityAnswer = await askPerplexity(prompt);
@@ -262,30 +265,16 @@ TASK:
       return res.status(400).json({ error: "Could not extract LaTeX" });
     }
 
-    /* -------- SMART NAME GENERATION -------- */
     let resumeName = "Generated Resume";
+    const firstLine = jobDescription.split("\n")[0];
+    const clean = firstLine.replace(/[^a-zA-Z0-9 ]/g, "").trim();
+    if (clean) resumeName = `${clean.slice(0, 20)} Resume`;
 
-    if (jobDescription) {
-      const firstLine = jobDescription.split("\n")[0];
-      const cleaned = firstLine
-        .replace(/[^a-zA-Z0-9 ]/g, "")
-        .trim()
-        .split(" ")
-        .slice(0, 5)
-        .join(" ");
-
-      resumeName = cleaned ? `${cleaned} Resume` : resumeName;
-    } else {
-      resumeName = `Resume-${Math.floor(1000 + Math.random() * 9000)}`;
-    }
-
-    /* -------- Save History -------- */
     const history = await History.create({
       user: userId,
       jobDescription,
       latexCode,
       resumeName,
-      perplexityId: null,
     });
 
     return res.json({
@@ -294,7 +283,6 @@ TASK:
       historyId: history._id,
       resumeName,
     });
-
   } catch (err) {
     console.error("Optimize error:", err);
     res.status(500).json({ error: err.message });
@@ -303,43 +291,29 @@ TASK:
 
 /* ----------------------------------------------------------
     PUT /api/optimize/latest
-    Save edited LaTeX back into latest History
 ---------------------------------------------------------- */
 router.put("/latest", protect, async (req, res) => {
   try {
     const latexCode = (req.body.latexCode || "").trim();
-    if (!latexCode) {
-      return res.status(400).json({ error: "latexCode cannot be empty" });
-    }
+    if (!latexCode) return res.status(400).json({ error: "latexCode required" });
 
-    // ⭐ Same fix: support both id/_id
     const userId = req.user?._id || req.user?.id;
-    if (!userId) {
-      console.error("[optimize/latest] No user id in req.user");
-      return res.status(401).json({ error: "User not authenticated" });
-    }
+    if (!userId) return res.status(401).json({ error: "Not authenticated" });
 
-    const history = await History.findOne({ user: userId }).sort({
-      createdAt: -1,
-    });
-
-    if (!history) {
-      return res.status(404).json({ error: "No history found to update" });
-    }
+    const history = await History.findOne({ user: userId }).sort({ createdAt: -1 });
+    if (!history) return res.status(404).json({ error: "No history found" });
 
     history.latexCode = latexCode;
     await history.save();
 
     return res.json({
       success: true,
-      message: "History updated with new LaTeX",
+      message: "History updated",
       historyId: history._id,
     });
   } catch (err) {
-    console.error("Update latest latex error:", err);
-    res.status(500).json({
-      error: err.message || "Server error while updating latex",
-    });
+    console.error("Update error:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
