@@ -27,7 +27,7 @@
     "multer": "^2.0.2",
     "node-latex": "^3.1.0",
     "pdf-parse": "^2.4.5",
-    "puppeteer": "^24.31.0",
+    "puppeteer": "^24.32.0",
     "puppeteer-extra": "^3.3.6",
     "puppeteer-extra-plugin-stealth": "^2.11.2",
     "tmp": "^0.2.5",
